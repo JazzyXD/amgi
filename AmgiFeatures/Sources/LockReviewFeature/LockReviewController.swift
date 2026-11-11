@@ -9,7 +9,7 @@ import AnkiKit
 import AppCore
 import Foundation
 import IntentsFeature
-import LockReviewCore
+package import LockReviewCore
 import OSLog
 import UIKit
 
@@ -43,7 +43,7 @@ package final class LockReviewController {
     private static let frontByteLimit = 900
     private static let backByteLimit = 1200
 
-    private typealias CardState = LockReviewAttributes.ContentState
+    fileprivate typealias CardState = LockReviewAttributes.ContentState
 
     private init() {}
 
