@@ -277,7 +277,8 @@ private extension LockReviewController {
         // Keeps the process alive after the intent that started this returns.
         let background = UIApplication.shared.beginBackgroundTask(withName: "LockReviewSync", expirationHandler: nil)
         do {
-            _ = try await SyncIntentRunner.run()
+            // Detached so no part of the sync can land on the main thread.
+            _ = try await Task.detached { try await SyncIntentRunner.run() }.value
         } catch {
             // Not signed in, offline, or a full sync is needed. All of those
             // are the app's to explain, on its sync screen.
