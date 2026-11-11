@@ -11,6 +11,7 @@ import AnkiBackend
 import AnkiClients
 import Dependencies
 import Foundation
+import LockReviewFeature
 import SyncFeature
 
 /// The app's dependency bootstrap. Called once from the host's `App.init`.
@@ -58,5 +59,12 @@ public enum AmgiRoot {
         } catch {
             startupError = error.localizedDescription
         }
+
+        // A Lock Screen button can launch the app in the background with no
+        // UI. Its intent runs right after this init, so the handler has to be
+        // in place here rather than in a view.
+        #if os(iOS)
+        LockReviewController.install()
+        #endif
     }
 }

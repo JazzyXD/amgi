@@ -10,6 +10,7 @@ import Theme
 package import AppCore
 import AppShared
 import BrowseFeature
+import LockReviewFeature
 import TemplatesFeature
 
 /// Settings, following the `amgi-settings.jsx` screen in the Amgi design
@@ -115,6 +116,16 @@ package struct SettingsView: View {
                 ) {
                     ReviewSettingsView()
                 }
+                #if os(iOS)
+                SettingsSeparator()
+                SettingsRowLink(
+                    title: "Lock Screen Review",
+                    systemImage: "lock.rectangle.on.rectangle",
+                    tone: .info
+                ) {
+                    LockReviewSettingsView()
+                }
+                #endif
                 SettingsSeparator()
                 SettingsRowLink(
                     title: "Card Rendering",

@@ -51,6 +51,8 @@ let package = Package(
         .library(name: "SettingsFeature", targets: ["SettingsFeature"]),
         .library(name: "WatchFeature", targets: ["WatchFeature"]),
         .library(name: "IntentsFeature", targets: ["IntentsFeature"]),
+        .library(name: "LockReviewCore", targets: ["LockReviewCore"]),
+        .library(name: "LockReviewFeature", targets: ["LockReviewFeature"]),
         .library(name: "RootFeature", targets: ["RootFeature"]),
     ],
     dependencies: [
@@ -340,6 +342,7 @@ let package = Package(
             name: "WidgetFeature",
             dependencies: [
                 "AppCore",
+                "LockReviewCore",
                 .product(name: "Theme", package: "AmgiUI"),
             ],
             swiftSettings: sharedSwiftSettings
@@ -382,6 +385,7 @@ let package = Package(
             dependencies: [
                 "AppCore",
                 "AppShared",
+                "LockReviewFeature",
                 "ReviewCore",
                 "BrowseFeature",
                 "ReviewFeature",
@@ -438,6 +442,38 @@ let package = Package(
             ],
             swiftSettings: sharedSwiftSettings
         ),
+        // The Lock Screen review card's shared half: the Live Activity
+        // attributes and the button intents. Linked by the widget extension
+        // (through WidgetFeature) and by the app, because ActivityKit matches
+        // the two processes on this one type and the Live Activity view names
+        // the intents.
+        //
+        // Same hard rule as AppCore: engine-free. It has no dependencies at
+        // all. The intents reach the engine through a handler the app
+        // installs at launch (LockReviewDispatcher), never by importing it.
+        .target(
+            name: "LockReviewCore",
+            swiftSettings: sharedSwiftSettings
+        ),
+        // The app half: LockReviewController (owns the Live Activity, turns
+        // button taps into scheduler calls), the deck picker under Settings,
+        // and the HTML-to-plain-text step a Live Activity needs. iOS only.
+        //
+        // Depends on IntentsFeature for SyncIntentRunner, the headless sync
+        // the Shortcuts action already uses.
+        .target(
+            name: "LockReviewFeature",
+            dependencies: [
+                "AppCore",
+                "IntentsFeature",
+                "LockReviewCore",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
         // The app's composition root: view composition (RootView, MainTabView,
         // StartupErrorView) and dependency bootstrap (AmgiRoot.bootstrap,
         // openCollection, switchProfile). The AmgiApp target holds only @main —
@@ -455,6 +491,7 @@ let package = Package(
                 "AppCore",
                 "AppShared",
                 "DecksFeature",
+                "LockReviewFeature",
                 "ReaderFeature",
                 "ReviewFeature",
                 "SettingsFeature",

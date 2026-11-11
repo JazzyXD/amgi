@@ -220,6 +220,8 @@ public final class ReviewSession {
         let timeSpent = UInt32(min(max(elapsedMs, 0), Int64(UInt32.max)))
         let cardId = queued.card.id
         let states = queued.states
+        let decks = self.decks
+        let deckId = self.deckId
         let scheduler = self.scheduler
         let notes = self.notes
         let notetypes = self.notetypes
@@ -237,6 +239,13 @@ public final class ReviewSession {
             await AppSignpost.measure("AnswerCard") {
                 do {
                     let queue = try await Task.detached {
+                        // Lock Screen Review answers cards while this screen
+                        // can still be open underneath, and it points the
+                        // collection at its own deck to do so. Pointing it
+                        // back is a no-op when nothing moved; when something
+                        // did, it also drops the other deck's queue, which
+                        // would otherwise reject this card.
+                        try decks.setCurrentDeck(deckId)
                         try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
                         return try scheduler.getQueuedCards(200)
                     }.value

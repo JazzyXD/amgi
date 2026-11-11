@@ -12,6 +12,7 @@ import Theme
 import AnkiKit
 import Dependencies
 import Foundation
+import LockReviewFeature
 import ReaderFeature
 import ReviewFeature
 import Sharing
@@ -55,6 +56,12 @@ public struct RootView: View {
                 if newPhase == .active {
                     Task { await writeWidgetSnapshot() }
                 }
+                #if os(iOS)
+                // Keep the Lock Screen card in step with reviews done here.
+                if newPhase != .inactive {
+                    LockReviewController.shared.sceneDidChange()
+                }
+                #endif
             }
             .onOpenURL { url in
                 guard url.scheme == "amgi",

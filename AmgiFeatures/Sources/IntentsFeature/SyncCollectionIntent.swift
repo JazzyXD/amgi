@@ -6,7 +6,7 @@
 //
 
 import AnkiClients
-import AnkiKit
+package import AnkiKit
 import AppCore
 import AppShared
 public import AppIntents
@@ -40,8 +40,9 @@ public struct SyncCollectionIntent: AppIntent {
     }
 }
 
-enum SyncIntentRunner {
-    static func run() async throws -> SyncSummary {
+/// `package` so Lock Screen Review can run the same headless sync.
+package enum SyncIntentRunner {
+    package static func run() async throws -> SyncSummary {
         @Dependency(\.syncClient) var syncClient
         let summary = try await syncClient.sync()
         UserDefaults.standard.set(
