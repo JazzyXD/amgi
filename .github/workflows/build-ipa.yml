@@ -68,7 +68,8 @@ jobs:
 
       # ── 5. Cache Rust build artifacts ─────────────────────────────
       - name: Cache Rust build artifacts
-        uses: actions/cache@v4
+        id: rust-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
@@ -92,6 +93,20 @@ jobs:
         run: |
           chmod +x ./scripts/build-xcframework.sh
           ./scripts/build-xcframework.sh
+
+      # Saved right after the Rust build rather than at the end of the job,
+      # so a Swift compile error further down does not throw away 20 minutes
+      # of Rust compilation on the next run.
+      - name: Save Rust build artifacts
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            anki-bridge-rs/target
+            anki-upstream/out
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
       # ── 8. Generate Swift protobuf types ──────────────────────────
       - name: Generate Swift protobuf types

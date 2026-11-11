@@ -179,8 +179,9 @@ private extension LockReviewController {
         let now = Date()
         if let activity = liveActivities.first,
            now.timeIntervalSince(activity.attributes.startedAt) < Self.renewAfter {
-            await activity.update(ActivityContent(state: state, staleDate: nil))
-            await endAll(except: activity.id)
+            let id = activity.id
+            await LockReviewActivities.update(id: id, state: state)
+            await LockReviewActivities.endAll(except: id)
             return
         }
 
@@ -193,24 +194,23 @@ private extension LockReviewController {
                 content: ActivityContent(state: state, staleDate: nil),
                 pushType: nil
             )
+            let freshID = fresh.id
             lastError = nil
-            await endAll(except: fresh.id)
+            await LockReviewActivities.endAll(except: freshID)
         } catch {
             Log.review.error("Lock Screen activity request failed: \(error)")
             lastError = "iOS did not let the card start: \(error.localizedDescription)"
             // Could not start a new one, which iOS may refuse while the app
             // is in the background. Keep the old one going for as long as it
             // has left.
-            if let activity = liveActivities.first {
-                await activity.update(ActivityContent(state: state, staleDate: nil))
+            if let id = liveActivities.first?.id {
+                await LockReviewActivities.update(id: id, state: state)
             }
         }
     }
 
-    func endAll(except keep: String? = nil) async {
-        for activity in allActivities where activity.id != keep {
-            await activity.end(nil, dismissalPolicy: .immediate)
-        }
+    func endAll() async {
+        await LockReviewActivities.endAll(except: nil)
     }
 
     static func state(for head: LockReviewHead) -> CardState {
@@ -248,6 +248,25 @@ private extension LockReviewController {
 
     static var failureState: CardState {
         CardState(phase: .idle, message: "Could not load cards. Open Amgi, then try again.")
+    }
+}
+
+/// `Activity` is not `Sendable`, so an instance read on the main actor cannot
+/// be handed to its own async `update` and `end`. These look the activity up
+/// again off the main actor, by id, and call it there.
+private enum LockReviewActivities {
+    @concurrent
+    static func update(id: String, state: LockReviewAttributes.ContentState) async {
+        for activity in Activity<LockReviewAttributes>.activities where activity.id == id {
+            await activity.update(ActivityContent(state: state, staleDate: nil))
+        }
+    }
+
+    @concurrent
+    static func endAll(except keep: String?) async {
+        for activity in Activity<LockReviewAttributes>.activities where activity.id != keep {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
     }
 }
 
