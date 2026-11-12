@@ -448,11 +448,12 @@ let package = Package(
         // the two processes on this one type and the Live Activity view names
         // the intents.
         //
-        // Same hard rule as AppCore: engine-free. It has no dependencies at
-        // all. The intents reach the engine through a handler the app
+        // Same hard rule as AppCore, its only dependency: engine-free. The
+        // intents reach the engine through a handler the app
         // installs at launch (LockReviewDispatcher), never by importing it.
         .target(
             name: "LockReviewCore",
+            dependencies: ["AppCore"],
             swiftSettings: sharedSwiftSettings
         ),
         // The app half: LockReviewController (owns the Live Activity, turns
@@ -465,6 +466,7 @@ let package = Package(
             name: "LockReviewFeature",
             dependencies: [
                 "AppCore",
+                "AppShared",
                 "IntentsFeature",
                 "LockReviewCore",
                 .product(name: "AnkiKit", package: "amgi"),

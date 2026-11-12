@@ -7,14 +7,22 @@
 import ActivityKit
 import AnkiKit
 import AppCore
+import AppShared
 import Foundation
 import IntentsFeature
 package import LockReviewCore
 import OSLog
 import UIKit
+import WidgetKit
 
-/// Owns the Lock Screen card: starts and replaces the Live Activity, and
-/// turns each button tap into a scheduler call and a fresh card.
+/// Owns the review card shown outside the app, on the Lock Screen (a Live
+/// Activity) and on the Home Screen (a widget): turns each button tap into a
+/// scheduler call and a fresh card, and shows that card in both places.
+///
+/// The card on offer is recorded once, in `LockReviewSnapshotStore`. The
+/// widget reads it from there, and the Live Activity is sent a copy cut down
+/// to ActivityKit's size limit. That shared record is why rating a card in
+/// one place moves the other one on too.
 ///
 /// One instance, on the main actor. Taps are handled strictly one after
 /// another, because two quick taps arrive as two overlapping intents and the
@@ -42,6 +50,8 @@ package final class LockReviewController {
     // deck name, the counts and the interval labels.
     private static let frontByteLimit = 900
     private static let backByteLimit = 1200
+    /// The widget has no such limit, only a sensible ceiling.
+    private static let storedByteLimit = 6000
 
     fileprivate typealias CardState = LockReviewAttributes.ContentState
 
@@ -71,7 +81,8 @@ package final class LockReviewController {
     /// The app became active or went to the background. Either way the
     /// queue may have moved (an in-app review, a sync), so re-read it.
     package func sceneDidChange() {
-        guard LockReviewSettings.isEnabled else { return }
+        // The widget needs this even when the Lock Screen card is off.
+        guard LockReviewSettings.isEnabled || !LockReviewSettings.deckIDs.isEmpty else { return }
         Task {
             let background = UIApplication.shared.beginBackgroundTask(withName: "LockReviewResume", expirationHandler: nil)
             await self.handle(.resume)
@@ -99,7 +110,7 @@ private extension LockReviewController {
             lastError = nil
             await endAll()
         case .refresh:
-            await push(CardState(phase: .idle, message: "Checking for cards\u{2026}"))
+            await publish(CardState(phase: .idle, message: "Checking for cards\u{2026}"))
             await sync()
             await showHead()
         case .resume:
@@ -111,49 +122,109 @@ private extension LockReviewController {
             await reveal()
         case .rate(let cardToken, let rating):
             await rate(cardToken: cardToken, rating: rating)
+        case .undo:
+            await undo()
+        case .nextDeck:
+            await show { try await LockReviewEngine.nextDeck() }
         }
     }
 
     func reveal() async {
-        guard var state = currentState else {
+        guard let snapshot = LockReviewSnapshotStore.read() else {
             await showHead()
             return
         }
+        var state = snapshot.state
         guard state.phase == .question else { return }
         // The back side already travelled with the question, so flipping
         // needs no engine call and feels instant.
         state.phase = .answer
-        await push(state)
+        await publish(state, canUndo: snapshot.canUndo)
     }
 
     func rate(cardToken: String, rating rawRating: Int) async {
         guard let rating = Rating(rawValue: Int16(clamping: rawRating)) else { return }
-        // The card may have sat on the Lock Screen for hours. Record at most
-        // a minute, which is what a reviewer left open would be capped at.
+        // The card may have sat on screen for hours. Record at most a
+        // minute, which is what a reviewer left open would be capped at.
         let elapsed = currentState.map { Date().timeIntervalSince($0.shownAt) } ?? 10
         let timeSpentMs = UInt32(min(max(elapsed, 1), 60) * 1000)
+        let deckBefore = LockReviewSettings.activeDeckID
         do {
-            let head = try await LockReviewEngine.answer(
+            let result = try await LockReviewEngine.answer(
                 cardToken: cardToken,
                 rating: rating,
                 timeSpentMs: timeSpentMs
             )
-            await push(Self.state(for: head))
-            syncSoon(queueIsEmpty: head.card == nil)
+            // Undo takes back the collection's last change. If the deck ran
+            // out and the next card came from another deck, that last change
+            // is the deck switch, not the rating, so undo is not offered.
+            let canUndo = result.didAnswer && LockReviewSettings.activeDeckID == deckBefore
+            await publish(result.head, canUndo: canUndo)
+            refreshProgress()
+            syncSoon(queueIsEmpty: result.head.card == nil)
         } catch {
-            Log.review.error("Lock Screen answer failed: \(error)")
-            await push(Self.failureState)
+            Log.review.error("Review card answer failed: \(error)")
+            await publish(Self.failureState)
         }
     }
 
+    func undo() async {
+        guard LockReviewSnapshotStore.read()?.canUndo == true else { return }
+        await show { try await LockReviewEngine.undo() }
+        refreshProgress()
+    }
+
     func showHead() async {
+        await show { try await LockReviewEngine.head() }
+    }
+
+    func show(_ load: () async throws -> LockReviewHead) async {
         do {
-            let head = try await LockReviewEngine.head()
-            await push(Self.state(for: head))
+            await publish(try await load())
         } catch {
-            Log.review.error("Lock Screen queue read failed: \(error)")
-            await push(Self.failureState)
+            Log.review.error("Review card queue read failed: \(error)")
+            await publish(Self.failureState)
         }
+    }
+
+    /// Today's count and the streak on the widget come from the snapshot the
+    /// app's other widgets already use. Rewriting it also reloads them.
+    func refreshProgress() {
+        Task {
+            let background = UIApplication.shared.beginBackgroundTask(withName: "LockReviewProgress", expirationHandler: nil)
+            await writeWidgetSnapshot()
+            if background != .invalid {
+                UIApplication.shared.endBackgroundTask(background)
+            }
+        }
+    }
+}
+
+// MARK: - Publishing
+
+private extension LockReviewController {
+    var currentState: CardState? {
+        LockReviewSnapshotStore.read()?.state
+            ?? (liveActivities.first ?? allActivities.first)?.content.state
+    }
+
+    func publish(_ head: LockReviewHead, canUndo: Bool = false) async {
+        await publish(Self.state(for: head), canUndo: canUndo, switchableDecks: head.switchableDecks)
+    }
+
+    /// Records `state` as the card on offer, then shows it on the widget and
+    /// on the Lock Screen.
+    func publish(_ state: CardState, canUndo: Bool = false, switchableDecks: Int? = nil) async {
+        let decks = switchableDecks ?? LockReviewSnapshotStore.read()?.switchableDecks ?? 0
+        LockReviewSnapshotStore.write(
+            LockReviewSnapshot(state: state, canUndo: canUndo, switchableDecks: decks)
+        )
+        WidgetCenter.shared.reloadTimelines(ofKind: LockReviewSnapshotStore.widgetKind)
+
+        var clipped = state
+        clipped.front = LockReviewText.clip(state.front, maxBytes: Self.frontByteLimit)
+        clipped.back = LockReviewText.clip(state.back, maxBytes: Self.backByteLimit)
+        await push(clipped)
     }
 }
 
@@ -166,13 +237,9 @@ private extension LockReviewController {
 
     /// Activities iOS still lets us update. One that hit the eight-hour cap
     /// stays visible for a while as `.ended`, with buttons that still work,
-    /// which is why `currentState` looks at those too.
+    /// which is why `currentState` falls back to those too.
     var liveActivities: [Activity<LockReviewAttributes>] {
         allActivities.filter { $0.activityState == .active || $0.activityState == .stale }
-    }
-
-    var currentState: CardState? {
-        (liveActivities.first ?? allActivities.first)?.content.state
     }
 
     func push(_ state: CardState) async {
@@ -240,8 +307,8 @@ private extension LockReviewController {
             phase: .question,
             deckName: LockReviewText.clip(head.deckName, maxBytes: 80),
             cardToken: String(card.card.id.rawValue),
-            front: LockReviewText.clip(head.front, maxBytes: frontByteLimit),
-            back: LockReviewText.clip(head.back, maxBytes: backByteLimit),
+            front: LockReviewText.clip(head.front, maxBytes: storedByteLimit),
+            back: LockReviewText.clip(head.back, maxBytes: storedByteLimit),
             newCount: head.counts.newCount,
             learnCount: head.counts.learnCount,
             reviewCount: head.counts.reviewCount,

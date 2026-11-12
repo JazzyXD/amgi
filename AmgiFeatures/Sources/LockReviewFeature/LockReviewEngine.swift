@@ -20,6 +20,8 @@ struct LockReviewHead: Sendable {
     var counts: DeckCounts
     /// False when no chosen deck exists in this collection.
     var hasSelection: Bool
+    /// How many chosen decks have cards waiting.
+    var switchableDecks: Int
 }
 
 /// The scheduler round-trips behind the Lock Screen card.
@@ -56,7 +58,7 @@ enum LockReviewEngine {
         cardToken: String,
         rating: Rating,
         timeSpentMs: UInt32
-    ) async throws -> LockReviewHead {
+    ) async throws -> (head: LockReviewHead, didAnswer: Bool) {
         let services = Services()
         let selection = LockReviewSettings.deckIDs
         let preferred = LockReviewSettings.activeDeckID
@@ -70,6 +72,27 @@ enum LockReviewEngine {
             )
         }.value
     }
+
+    /// Takes back the collection's last change, which the caller has checked
+    /// is the rating just given, and returns the card that comes back.
+    static func undo() async throws -> LockReviewHead {
+        let services = Services()
+        let selection = LockReviewSettings.deckIDs
+        let preferred = LockReviewSettings.activeDeckID
+        return try await Task.detached {
+            try services.undo(selection: selection, preferred: preferred)
+        }.value
+    }
+
+    /// Moves to the next chosen deck that has cards waiting.
+    static func nextDeck() async throws -> LockReviewHead {
+        let services = Services()
+        let selection = LockReviewSettings.deckIDs
+        let preferred = LockReviewSettings.activeDeckID
+        return try await Task.detached {
+            try services.nextDeck(selection: selection, preferred: preferred)
+        }.value
+    }
 }
 
 extension LockReviewEngine {
@@ -77,6 +100,7 @@ extension LockReviewEngine {
     private struct Located {
         var hasSelection: Bool
         var totals: DeckCounts
+        var switchableDecks = 0
         var deck: DeckInfo?
         var queue: QueuedCardsResult?
     }
@@ -88,14 +112,33 @@ extension LockReviewEngine {
         let decks: DecksService
         let scheduler: SchedulerService
         let cardRendering: CardRenderingService
+        let collection: CollectionService
 
         init() {
             @Dependency(\.decksService) var decksService
             @Dependency(\.schedulerService) var schedulerService
             @Dependency(\.cardRenderingService) var cardRenderingService
+            @Dependency(\.collectionService) var collectionService
             decks = decksService
             scheduler = schedulerService
             cardRendering = cardRenderingService
+            collection = collectionService
+        }
+
+        func undo(selection: [Int64], preferred: Int64?) throws -> LockReviewHead {
+            try collection.undoLast()
+            return try head(selection: selection, preferred: preferred)
+        }
+
+        func nextDeck(selection: [Int64], preferred: Int64?) throws -> LockReviewHead {
+            let waiting = try roots(of: selection).filter { $0.counts.total > 0 }
+            if waiting.count > 1 {
+                let current = waiting.firstIndex { $0.id.rawValue == preferred } ?? -1
+                let next = waiting[(current + 1) % waiting.count]
+                LockReviewSettings.activeDeckID = next.id.rawValue
+                return try head(selection: selection, preferred: next.id.rawValue)
+            }
+            return try head(selection: selection, preferred: preferred)
         }
 
         func head(selection: [Int64], preferred: Int64?) throws -> LockReviewHead {
@@ -109,16 +152,18 @@ extension LockReviewEngine {
             timeSpentMs: UInt32,
             selection: [Int64],
             preferred: Int64?
-        ) throws -> LockReviewHead {
+        ) throws -> (head: LockReviewHead, didAnswer: Bool) {
             let located = try locate(
                 selection: selection,
                 preferred: preferred,
                 limit: LockReviewEngine.searchDepth
             )
             let match = located.queue?.cards.first { String($0.card.id.rawValue) == cardToken }
+            var didAnswer = false
             if let match {
                 do {
                     try scheduler.answerReviewCard(match.card.id, rating, timeSpentMs, match.states)
+                    didAnswer = true
                 } catch {
                     // The engine only accepts the card at the front of its
                     // cached queue. After the app has been relaunched the
@@ -127,10 +172,11 @@ extension LockReviewEngine {
                     // second. A failed answer rolls back and drops that
                     // cache, and with no cache the engine checks only that
                     // the card's state is unchanged. So: try once more.
-                    _ = try? scheduler.answerReviewCard(match.card.id, rating, timeSpentMs, match.states)
+                    didAnswer = (try? scheduler.answerReviewCard(match.card.id, rating, timeSpentMs, match.states)) != nil
                 }
             }
-            return try head(selection: selection, preferred: LockReviewSettings.activeDeckID)
+            let next = try head(selection: selection, preferred: LockReviewSettings.activeDeckID)
+            return (next, didAnswer)
         }
 
         private func render(_ located: Located) throws -> LockReviewHead {
@@ -141,7 +187,8 @@ extension LockReviewEngine {
                     front: "",
                     back: "",
                     counts: located.totals,
-                    hasSelection: located.hasSelection
+                    hasSelection: located.hasSelection,
+                    switchableDecks: located.switchableDecks
                 )
             }
             let rendered = try cardRendering.renderCard(card.card.id)
@@ -154,37 +201,41 @@ extension LockReviewEngine {
                     backHTML: rendered.backHTML
                 ),
                 counts: located.totals,
-                hasSelection: true
+                hasSelection: true,
+                switchableDecks: located.switchableDecks
             )
+        }
+
+        /// The chosen decks that exist in this collection, minus any whose
+        /// parent is also chosen. A parent deck already serves its subdecks,
+        /// so a subdeck picked alongside it would only be counted twice.
+        private func roots(of selection: [Int64]) throws -> [DeckInfo] {
+            guard !selection.isEmpty else { return [] }
+            let all = try decks.fetchAll()
+            let chosen = Set(selection)
+            let existing = all.filter { chosen.contains($0.id.rawValue) }
+            return existing.filter { deck in
+                !existing.contains { $0.id != deck.id && deck.name.hasPrefix($0.name + "::") }
+            }
         }
 
         /// Finds the first chosen deck with a card to show and returns the
         /// top `limit` cards of its queue.
         private func locate(selection: [Int64], preferred: Int64?, limit: Int32) throws -> Located {
-            guard !selection.isEmpty else {
-                return Located(hasSelection: false, totals: .zero)
-            }
-            let all = try decks.fetchAll()
-            let chosen = Set(selection)
-            let existing = all.filter { chosen.contains($0.id.rawValue) }
-            // A parent deck already serves its subdecks, so a subdeck picked
-            // alongside its parent would only be counted twice.
-            let roots = existing.filter { deck in
-                !existing.contains { $0.id != deck.id && deck.name.hasPrefix($0.name + "::") }
-            }
-            guard !roots.isEmpty else {
+            let inPlay = try roots(of: selection)
+            guard !inPlay.isEmpty else {
                 return Located(hasSelection: false, totals: .zero)
             }
 
             var totals = DeckCounts.zero
-            for deck in roots {
+            for deck in inPlay {
                 totals.newCount += deck.counts.newCount
                 totals.learnCount += deck.counts.learnCount
                 totals.reviewCount += deck.counts.reviewCount
             }
 
             // Stay on the deck the last card came from until it runs dry.
-            var ordered = roots
+            var ordered = inPlay
             if let preferred, let index = ordered.firstIndex(where: { $0.id.rawValue == preferred }) {
                 ordered.insert(ordered.remove(at: index), at: 0)
             }
@@ -193,16 +244,23 @@ extension LockReviewEngine {
             // If no deck reports anything, ask each one anyway, in case the
             // tree came back without counts.
             let candidates = totals.total > 0 ? ordered.filter { $0.counts.total > 0 } : ordered
+            let switchable = inPlay.filter { $0.counts.total > 0 }.count
 
             for deck in candidates {
                 try decks.setCurrentDeck(deck.id)
                 let queue = try scheduler.getQueuedCards(limit)
                 if !queue.cards.isEmpty {
                     LockReviewSettings.activeDeckID = deck.id.rawValue
-                    return Located(hasSelection: true, totals: totals, deck: deck, queue: queue)
+                    return Located(
+                        hasSelection: true,
+                        totals: totals,
+                        switchableDecks: switchable,
+                        deck: deck,
+                        queue: queue
+                    )
                 }
             }
-            return Located(hasSelection: true, totals: totals)
+            return Located(hasSelection: true, totals: totals, switchableDecks: switchable)
         }
     }
 }

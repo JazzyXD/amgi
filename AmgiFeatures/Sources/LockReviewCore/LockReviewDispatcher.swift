@@ -21,6 +21,10 @@ public enum LockReviewAction: Sendable, Equatable {
     case reveal
     /// Rate the card on screen. `rating` is 1...4 (again, hard, good, easy).
     case rate(cardToken: String, rating: Int)
+    /// Take back the rating just given.
+    case undo
+    /// Move on to the next chosen deck that has cards waiting.
+    case nextDeck
 }
 
 /// The seam between the intents and the engine.

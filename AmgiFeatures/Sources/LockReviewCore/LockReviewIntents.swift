@@ -7,9 +7,11 @@
 public import AppIntents
 import Foundation
 
-// The three button intents are `LiveActivityIntent`s, so iOS runs them in the
-// app's process (launching it in the background if needed) and never in the
-// widget extension. Each one only forwards to `LockReviewDispatcher`.
+// The button intents are `LiveActivityIntent`s, so iOS runs them in the app's
+// process (launching it in the background if needed) and never in the widget
+// extension. That holds for buttons on the Home Screen widget too, which is
+// why the widget reuses them. Each one only forwards to
+// `LockReviewDispatcher`.
 
 /// "Show Answer" on the Lock Screen card.
 public struct LockReviewRevealIntent: LiveActivityIntent {
@@ -57,6 +59,32 @@ public struct LockReviewRefreshIntent: LiveActivityIntent {
 
     public func perform() async throws -> some IntentResult {
         await LockReviewDispatcher.dispatch(.refresh)
+        return .result()
+    }
+}
+
+/// "Undo" on the Home Screen widget.
+public struct LockReviewUndoIntent: LiveActivityIntent {
+    public init() {}
+
+    public static let title: LocalizedStringResource = "Undo Rating"
+    public static let isDiscoverable: Bool = false
+
+    public func perform() async throws -> some IntentResult {
+        await LockReviewDispatcher.dispatch(.undo)
+        return .result()
+    }
+}
+
+/// The deck name on the Home Screen widget: tap to move to the next deck.
+public struct LockReviewNextDeckIntent: LiveActivityIntent {
+    public init() {}
+
+    public static let title: LocalizedStringResource = "Next Deck"
+    public static let isDiscoverable: Bool = false
+
+    public func perform() async throws -> some IntentResult {
+        await LockReviewDispatcher.dispatch(.nextDeck)
         return .result()
     }
 }

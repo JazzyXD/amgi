@@ -57,7 +57,7 @@ package struct LockReviewSettingsView: View {
                     .buttonStyle(.plain)
                 }
             } header: {
-                Text("Decks on the Lock Screen")
+                Text("Decks to review")
             } footer: {
                 Text("A deck includes its subdecks. Cards come from one deck at a time, moving to the next when it runs out.")
             }
@@ -76,6 +76,11 @@ package struct LockReviewSettingsView: View {
                 .foregroundStyle(.secondary)
                 Text(
                     "Cards show as plain text. Images, audio and formatted math do not appear on the Lock Screen, so picture-heavy decks are better reviewed in the app."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                Text(
+                    "For more room, add the large Amgi Review widget to your Home Screen. It reviews the same decks, with undo and a deck switcher, and stays in step with the Lock Screen card."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -149,9 +154,9 @@ final class LockReviewSettingsModel {
         // Stored in deck-list order, so the Lock Screen walks the decks in
         // the order the user sees them here.
         LockReviewSettings.deckIDs = decks.map(\.id.rawValue).filter { selected.contains($0) }
-        if isRunning {
-            Task { await LockReviewController.shared.handle(.resume) }
-        }
+        // The Home Screen widget shows these decks whether or not the Lock
+        // Screen card is running.
+        Task { await LockReviewController.shared.handle(.resume) }
     }
 
     func start() async {
