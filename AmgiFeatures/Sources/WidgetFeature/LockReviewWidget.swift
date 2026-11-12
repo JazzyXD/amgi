@@ -23,9 +23,13 @@ public struct LockReviewWidget: Widget {
     public init() {}
 
     public var body: some WidgetConfiguration {
-        AppIntentConfiguration(
+        // A static configuration, not an intent-backed one. There is nothing
+        // to configure (the decks are chosen in the app, so the widget and
+        // the Lock Screen card share one list), and a widget whose
+        // configuration intent iOS cannot resolve is left out of the widget
+        // picker without any error.
+        StaticConfiguration(
             kind: LockReviewSnapshotStore.widgetKind,
-            intent: LockReviewWidgetIntent.self,
             provider: LockReviewWidgetProvider()
         ) { entry in
             LockReviewWidgetView(entry: entry)
@@ -35,13 +39,6 @@ public struct LockReviewWidget: Widget {
         .description("Review your due cards right on the Home Screen.")
         .supportedFamilies([.systemLarge])
     }
-}
-
-/// Nothing to configure. The decks are chosen in the app, under Settings,
-/// so the widget and the Lock Screen card always share one list.
-struct LockReviewWidgetIntent: WidgetConfigurationIntent {
-    static let title: LocalizedStringResource = "Amgi Review"
-    static let description = IntentDescription("Review your due cards on the Home Screen.")
 }
 
 struct LockReviewWidgetEntry: TimelineEntry {
@@ -81,22 +78,21 @@ struct LockReviewWidgetEntry: TimelineEntry {
     }
 }
 
-struct LockReviewWidgetProvider: AppIntentTimelineProvider {
-    typealias Intent = LockReviewWidgetIntent
+struct LockReviewWidgetProvider: TimelineProvider {
     typealias Entry = LockReviewWidgetEntry
 
     func placeholder(in context: Context) -> LockReviewWidgetEntry {
         .sample
     }
 
-    func snapshot(for configuration: LockReviewWidgetIntent, in context: Context) async -> LockReviewWidgetEntry {
-        context.isPreview ? .sample : .current()
+    func getSnapshot(in context: Context, completion: @escaping @Sendable (LockReviewWidgetEntry) -> Void) {
+        completion(context.isPreview ? .sample : .current())
     }
 
-    func timeline(for configuration: LockReviewWidgetIntent, in context: Context) async -> Timeline<LockReviewWidgetEntry> {
+    func getTimeline(in context: Context, completion: @escaping @Sendable (Timeline<LockReviewWidgetEntry>) -> Void) {
         // The app reloads this widget whenever the card changes. The
         // half-hourly refresh only covers the case where it could not.
-        Timeline(entries: [.current()], policy: .after(Date().addingTimeInterval(1800)))
+        completion(Timeline(entries: [.current()], policy: .after(Date().addingTimeInterval(1800))))
     }
 }
 
