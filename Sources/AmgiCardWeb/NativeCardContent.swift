@@ -70,7 +70,10 @@ public struct NativeCardContent: Sendable, Equatable {
 
     /// Block boundaries: standalone blocks (`<hr>`, `<img>`) and separators.
     private static let boundaryRegex = try! NSRegularExpression(
-        pattern: #"<hr\s*/?>|<img\b[^>]*>|<br\s*/?>|</div>|</p>|</center>"#,
+        // `<hr\b[^>]*>`, not `<hr\s*/?>`: Anki's stock back template is
+        // `{{FrontSide}}<hr id=answer>{{Back}}`, and without the attribute
+        // match the question and answer ran together as one line.
+        pattern: #"<hr\b[^>]*>|<img\b[^>]*>|<br\s*/?>|</div>|</p>|</center>"#,
         options: [.caseInsensitive]
     )
 
