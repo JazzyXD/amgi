@@ -24,9 +24,15 @@ public struct LockReviewLiveActivity: Widget {
 
     public var body: some WidgetConfiguration {
         ActivityConfiguration(for: LockReviewAttributes.self) { context in
+            // 136 of content plus 24 of padding is the 160 points iOS allows
+            // a Lock Screen Live Activity. Anything taller gets clipped.
             LockReviewCardView(state: context.state, isCompact: false)
+                .frame(height: 136)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
+                .environment(\.colorScheme, .dark)
+                .activityBackgroundTint(Color.black.opacity(0.55))
+                .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.bottom) {
@@ -51,23 +57,17 @@ struct LockReviewCardView: View {
     let isCompact: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: isCompact ? 6 : 8) {
             header
-            switch state.phase {
-            case .question:
-                question
-            case .answer:
-                answer
-            case .idle:
-                idle
-            }
+            card
+            controls
         }
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             Text(state.deckName.isEmpty ? "Amgi" : state.deckName)
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -75,58 +75,82 @@ struct LockReviewCardView: View {
             count(state.learnCount, color: .red, label: "learning")
             count(state.reviewCount, color: .green, label: "to review")
         }
+        .padding(.horizontal, 4)
     }
 
     private func count(_ value: Int, color: Color, label: String) -> some View {
         Text("\(value)")
-            .font(.caption2.weight(.bold))
+            .font(.caption.weight(.bold))
             .monospacedDigit()
             .foregroundStyle(color)
             .accessibilityLabel("\(value) \(label)")
     }
 
-    @ViewBuilder
-    private var question: some View {
-        Text(state.front)
-            .font(.callout)
-            .lineLimit(isCompact ? 2 : 4)
-            .minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        Button(intent: LockReviewRevealIntent()) {
-            pill("Show Answer", detail: "", color: .blue)
+    /// The flashcard itself: its own raised surface, so the text reads as a
+    /// card and the buttons below read as something you do to it.
+    private var card: some View {
+        VStack(spacing: 4) {
+            switch state.phase {
+            case .question:
+                Text(state.front)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(isCompact ? 2 : 3)
+                    .minimumScaleFactor(0.55)
+            case .answer:
+                Text(state.front)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Rectangle()
+                    .fill(.white.opacity(0.18))
+                    .frame(height: 1)
+                    .padding(.horizontal, 24)
+                Text(state.back)
+                    .font(.body.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(isCompact ? 2 : 3)
+                    .minimumScaleFactor(0.5)
+            case .idle:
+                Text(state.message)
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.7)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: .infinity)
+        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+        )
     }
 
     @ViewBuilder
-    private var answer: some View {
-        Text(state.front)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        Text(state.back)
-            .font(.callout.weight(.semibold))
-            .lineLimit(isCompact ? 2 : 3)
-            .minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        HStack(spacing: 6) {
-            rate(1, "Again", color: .red)
-            rate(2, "Hard", color: .orange)
-            rate(3, "Good", color: .green)
-            rate(4, "Easy", color: .blue)
+    private var controls: some View {
+        switch state.phase {
+        case .question:
+            Button(intent: LockReviewRevealIntent()) {
+                pill("Show Answer", detail: "", color: .blue)
+            }
+            .buttonStyle(.plain)
+        case .answer:
+            HStack(spacing: 6) {
+                rate(1, "Again", color: .red)
+                rate(2, "Hard", color: .orange)
+                rate(3, "Good", color: .green)
+                rate(4, "Easy", color: .blue)
+            }
+        case .idle:
+            Button(intent: LockReviewRefreshIntent()) {
+                pill("Check Again", detail: "", color: .gray)
+            }
+            .buttonStyle(.plain)
         }
-    }
-
-    @ViewBuilder
-    private var idle: some View {
-        Text(state.message)
-            .font(.callout)
-            .lineLimit(3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        Button(intent: LockReviewRefreshIntent()) {
-            pill("Check Again", detail: "", color: .gray)
-        }
-        .buttonStyle(.plain)
     }
 
     private func rate(_ rating: Int, _ title: String, color: Color) -> some View {
@@ -141,7 +165,7 @@ struct LockReviewCardView: View {
     private func pill(_ title: String, detail: String, color: Color) -> some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.caption.weight(.bold))
+                .font(.footnote.weight(.bold))
                 .lineLimit(1)
             if !detail.isEmpty {
                 Text(detail)
@@ -151,8 +175,8 @@ struct LockReviewCardView: View {
             }
         }
         .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 32)
-        .background(color.opacity(0.85), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 34)
+        .background(color.opacity(0.9), in: Capsule())
     }
 }
 #endif
