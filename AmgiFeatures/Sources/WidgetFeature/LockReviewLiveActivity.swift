@@ -56,12 +56,19 @@ struct LockReviewCardView: View {
     /// The Dynamic Island's expanded area is shorter than the Lock Screen's.
     let isCompact: Bool
 
+    /// 160 points is the tallest a Lock Screen Live Activity may be. The
+    /// Lock Screen layout claims all of it (136 here plus 12 of padding top
+    /// and bottom from the configuration), so the card keeps one size
+    /// instead of growing and shrinking with the text.
+    private static let lockScreenContentHeight: CGFloat = 136
+
     var body: some View {
-        VStack(alignment: .leading, spacing: isCompact ? 6 : 8) {
+        VStack(alignment: .leading, spacing: isCompact ? 6 : 10) {
             header
-            card
+            surface
             controls
         }
+        .frame(height: isCompact ? nil : Self.lockScreenContentHeight)
     }
 
     private var header: some View {
@@ -75,7 +82,6 @@ struct LockReviewCardView: View {
             count(state.learnCount, color: .red, label: "learning")
             count(state.reviewCount, color: .green, label: "to review")
         }
-        .padding(.horizontal, 4)
     }
 
     private func count(_ value: Int, color: Color, label: String) -> some View {
@@ -86,15 +92,13 @@ struct LockReviewCardView: View {
             .accessibilityLabel("\(value) \(label)")
     }
 
-    /// The flashcard itself: its own raised surface, so the text reads as a
-    /// card and the buttons below read as something you do to it.
-    private var card: some View {
+    /// The card face: its own raised panel, apart from the buttons.
+    private var surface: some View {
         VStack(spacing: 4) {
             switch state.phase {
             case .question:
                 Text(state.front)
                     .font(.title3.weight(.semibold))
-                    .multilineTextAlignment(.center)
                     .lineLimit(isCompact ? 2 : 3)
                     .minimumScaleFactor(0.55)
             case .answer:
@@ -102,31 +106,25 @@ struct LockReviewCardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Rectangle()
-                    .fill(.white.opacity(0.18))
-                    .frame(height: 1)
-                    .padding(.horizontal, 24)
                 Text(state.back)
                     .font(.body.weight(.semibold))
-                    .multilineTextAlignment(.center)
                     .lineLimit(isCompact ? 2 : 3)
-                    .minimumScaleFactor(0.5)
+                    .minimumScaleFactor(0.55)
             case .idle:
                 Text(state.message)
                     .font(.callout)
-                    .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                     .minimumScaleFactor(0.7)
             }
         }
+        .multilineTextAlignment(.center)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: .infinity)
-        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, maxHeight: isCompact ? nil : .infinity)
+        .background(
+            Color.white.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
     }
 
@@ -165,18 +163,18 @@ struct LockReviewCardView: View {
     private func pill(_ title: String, detail: String, color: Color) -> some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.footnote.weight(.bold))
+                .font(.subheadline.weight(.bold))
                 .lineLimit(1)
             if !detail.isEmpty {
                 Text(detail)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .lineLimit(1)
                     .opacity(0.85)
             }
         }
         .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 34)
-        .background(color.opacity(0.9), in: Capsule())
+        .frame(maxWidth: .infinity, minHeight: 38)
+        .background(color.opacity(0.9), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 #endif

@@ -180,7 +180,11 @@ private extension LockReviewController {
         if let activity = liveActivities.first,
            now.timeIntervalSince(activity.attributes.startedAt) < Self.renewAfter {
             let id = activity.id
-            await LockReviewActivities.update(id: id, state: state)
+            await LockReviewActivities.update(
+                id: id,
+                state: state,
+                alerting: LockReviewSettings.wakesScreenOnUpdate && state.phase != .idle
+            )
             await LockReviewActivities.endAll(except: id)
             return
         }
@@ -256,9 +260,19 @@ private extension LockReviewController {
 /// again off the main actor, by id, and call it there.
 private enum LockReviewActivities {
     @concurrent
-    static func update(id: String, state: LockReviewAttributes.ContentState) async {
+    static func update(
+        id: String,
+        state: LockReviewAttributes.ContentState,
+        alerting: Bool = false
+    ) async {
         for activity in Activity<LockReviewAttributes>.activities where activity.id == id {
-            await activity.update(ActivityContent(state: state, staleDate: nil))
+            let content = ActivityContent(state: state, staleDate: nil)
+            if alerting {
+                let alert = AlertConfiguration(title: "Amgi", body: "Next card", sound: .default)
+                await activity.update(content, alertConfiguration: alert)
+            } else {
+                await activity.update(content)
+            }
         }
     }
 

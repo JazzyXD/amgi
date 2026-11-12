@@ -19,6 +19,7 @@ package struct LockReviewSettingsView: View {
     package init() {}
 
     package var body: some View {
+        @Bindable var model = model
         List {
             Section {
                 if model.isRunning {
@@ -59,6 +60,12 @@ package struct LockReviewSettingsView: View {
                 Text("Decks on the Lock Screen")
             } footer: {
                 Text("A deck includes its subdecks. Cards come from one deck at a time, moving to the next when it runs out.")
+            }
+
+            Section {
+                Toggle("Wake screen on each card", isOn: $model.wakesScreen)
+            } footer: {
+                Text("Experimental. iOS dims the Lock Screen after a few seconds and apps cannot change that. This relights it each time you tap a button, and may buzz or chime when it does.")
             }
 
             Section {
@@ -117,6 +124,9 @@ final class LockReviewSettingsModel {
     var isWorking = false
     var didLoad = false
     var errorMessage: String?
+    var wakesScreen: Bool = LockReviewSettings.wakesScreenOnUpdate {
+        didSet { LockReviewSettings.wakesScreenOnUpdate = wakesScreen }
+    }
 
     func load() async {
         @Dependency(\.deckClient) var deckClient

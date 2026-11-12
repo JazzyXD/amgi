@@ -31,6 +31,14 @@ enum LockReviewSettings {
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
     }
 
+    /// Experimental: send each card change as an alerting update, which
+    /// lights the screen again. iOS offers no way to hold the Lock Screen
+    /// awake, so this is the nearest thing, and it may buzz or chime.
+    static var wakesScreenOnUpdate: Bool {
+        get { UserDefaults.standard.bool(forKey: "lockReview.wakeOnUpdate") }
+        set { UserDefaults.standard.set(newValue, forKey: "lockReview.wakeOnUpdate") }
+    }
+
     /// The deck the last card came from. The next card comes from the same
     /// deck until it runs dry, so the card does not hop between decks.
     static var activeDeckID: Int64? {
